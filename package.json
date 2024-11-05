@@ -1,0 +1,30 @@
+{
+  "name": "bonk-clone",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "tsx --watch src/index.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@pinata/sdk": "^2.1.0",
+    "@prisma/client": "^5.21.1",
+    "@solana/spl-token": "^0.4.9",
+    "@solana/web3.js": "^1.95.4",
+    "@thirdweb-dev/storage": "^2.0.15",
+    "@types/bs58": "^4.0.4",
+    "@types/dotenv": "^6.1.1",
+    "axios": "^1.7.7",
+    "bs58": "^6.0.0",
+    "dotenv": "^16.4.5",
+    "form-data": "^4.0.1",
+    "pinata": "^1.7.2",
+    "prisma": "^5.21.1",
+    "telegraf": "^4.16.3",
+    "tsx": "^4.19.2"
+  }
+}
