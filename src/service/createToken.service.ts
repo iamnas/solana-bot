@@ -45,6 +45,7 @@ export const createNewToken = async (
   totalSupply: number,
   metaData:string
 ) => {
+
   const connection = new Connection(clusterApiUrl("devnet"), "confirmed");
 
   const payerKeypair = Keypair.fromSecretKey(bs58.decode(secretKey));

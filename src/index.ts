@@ -5,15 +5,18 @@ import {
   createNewWalletAddress,
   createSolanaToken,
   getBalance,
+  getDepositSol,
+  getWalletInfo,
   MIN_BALANCE,
+  withdrawAllSol,
+  withdrawAllXSol,
+  withdrawSol,
+  withdrawXSol,
 } from "./service";
 import { prisma, thirdStorage } from "./db";
-
 import { message } from "telegraf/filters";
-
 import type { Update } from "telegraf/types";
 import axios from "axios";
-import fs from "fs";
 import { LAMPORTS_PER_SOL } from "@solana/web3.js";
 
 interface MyContext<U extends Update = Update> extends Context<U> {
@@ -22,6 +25,7 @@ interface MyContext<U extends Update = Update> extends Context<U> {
     tokenName: string;
     tokenSymbol: string;
     tokenSupply: string;
+    withdrawAmount: string;
   };
 }
 
@@ -32,6 +36,7 @@ const defalutSession = {
   tokenName: "",
   tokenSymbol: "",
   tokenSupply: "",
+  withdrawAmount:""
 };
 
 bot.use(
@@ -78,6 +83,7 @@ const sendWelcomeMessage = async (ctx: Context) => {
       //   Markup.button.callback("Alerts", "alert"),
       // ],
       [
+        Markup.button.callback("Create Wallet", "createwallet"),
         Markup.button.callback("Wallet", "wallet"),
         Markup.button.callback("Create Token", "crearetoken"),
         // Markup.button.callback("Settings", "settings"),
@@ -92,8 +98,12 @@ const sendWelcomeMessage = async (ctx: Context) => {
 
 bot.start((ctx) => sendWelcomeMessage(ctx));
 
-bot.action("wallet", (ctx) => {
+bot.action("createwallet", (ctx) => {
   handleCallback(ctx, sendCreateNewSolanaAddress);
+});
+
+bot.action("wallet", (ctx) => {
+  handleCallback(ctx, displayWalletInfo);
 });
 
 bot.action("crearetoken", async (ctx) => {
@@ -116,6 +126,71 @@ bot.action("crearetoken", async (ctx) => {
 
   sendCreateSolanaToken(ctx);
   // handleCallback(ctx, sendCreateSolanaToken);
+});
+
+bot.action("close", (ctx) => ctx.deleteMessage());
+
+bot.action("deposit_sol", (ctx) => {
+  handleCallback(ctx, sendDepositSol);
+});
+
+bot.action("withdraw_all", (ctx) => {
+  sendWithdrawSol(ctx);
+});
+
+bot.action("withdraw_x", (ctx) => {
+  // Prompt the user for the amount to withdraw
+  sendWithdrawXSol(ctx);
+});
+
+bot.action("reset_wallet", async (ctx) => {
+  const message =
+    `*Are you sure you want to reset your Wallet?*\n\n` +
+    `*WARNING: This action is irreversible!* \n\n` +
+    `The bot will generate a new wallet for you and discard your old one.`;
+
+  const button = Markup.inlineKeyboard([
+    [
+      Markup.button.callback("Cancel", "cancel_reset"),
+      Markup.button.callback("Confirm", "confirm_reset"),
+    ],
+  ]);
+  await ctx.reply(message, { parse_mode: "Markdown", ...button });
+  await ctx.answerCbQuery();
+});
+
+// Confirm reset action
+bot.action("confirm_reset", async (ctx) => {
+  // Perform the wallet reset logic here
+  const newWallet = "await resetUserWallet(ctx.from?.id)";
+
+  const message =
+    `*Success:* Your new wallet is:\n\n` +
+    `\`${newWallet}\`\n\n` +
+    `You can now send SOL to this address to deposit into your new wallet. Press refresh to see your new wallet.`;
+
+  const button = Markup.inlineKeyboard([
+    [Markup.button.callback("Refresh", "refresh")],
+  ]);
+
+  await ctx.reply(message, { parse_mode: "Markdown", ...button });
+  await ctx.answerCbQuery();
+});
+
+// Cancel reset action
+bot.action("cancel_reset", (ctx) => {
+  ctx.deleteMessage();
+});
+
+bot.action("export_key", (ctx) => {
+  // Implement private key export functionality
+});
+
+// Handler for refreshing wallet info
+bot.action("refresh", async (ctx) => {
+  const { message, buttons } = await sendWalletInfo(ctx.from?.id?.toString()!);
+  await ctx.editMessageText(message, { parse_mode: "Markdown", ...buttons });
+  ctx.answerCbQuery(); // Acknowledge the callback query
 });
 
 bot.on(message("photo"), async (ctx) => {
@@ -145,7 +220,7 @@ bot.on(message("photo"), async (ctx) => {
         name: ctx.session.tokenName,
         symbol: ctx.session.tokenSymbol,
         tokenSupply: ctx.session.tokenSupply,
-        image: `https://ipfs.io/${imageUrl}` ,
+        image: `https://ipfs.io/${imageUrl}`,
       };
       const metaDataUpload = await thirdStorage.upload(metaData);
 
@@ -161,7 +236,6 @@ bot.on(message("photo"), async (ctx) => {
       );
 
       // console.log(token);
-      
 
       // Final confirmation message
       await ctx.reply(
@@ -202,23 +276,64 @@ bot.on(message("text"), async (ctx) => {
     ctx.session.tokenSupply = ctx.message.text;
     ctx.session.state = "awaiting_image";
     await ctx.reply("Now, please upload an image to represent your token.");
-  } else {
-    await ctx.reply(
-      "Please use the /createtoken command to start creating a token."
-    );
+  } else if (state === "withdraw_sol") {
+    const address = ctx.message.text;
+    const { message } = await withdrawAllSol(address, ctx.from.id.toString());
+    await ctx.reply(message, { parse_mode: "Markdown" });
+    ctx.session = defalutSession;
+  }else if (state === "awaiting_withdraw_amount"){
+    const amountInput = ctx.message?.text;
+    if (!amountInput) {
+      return ctx.reply("Invalid input. Please enter a valid amount in SOL.");
+    }
+    ctx.session.withdrawAmount = ctx.message.text;
+    ctx.session.state = "awaiting_withdraw_address";
+    await ctx.reply("Now, Please enter your wallet address for withdraw");
+
+  }else if (state === "awaiting_withdraw_address"){
+    const address = ctx.message.text;
+    const { message } = await withdrawAllXSol(address,ctx.session.withdrawAmount ,ctx.from.id.toString());
+    await ctx.reply(message, { parse_mode: "Markdown" });
+    ctx.session = defalutSession;
   }
+  // else {
+  //   await ctx.reply(
+  //     "Please use the /createtoken command to start creating a token."
+  //   );
+  // }
 });
-
-bot.launch().then(() => console.log("Bot started"));
-
-const handleCallback = (ctx: Context, callback: (ctx: Context) => void) => {
-  callback(ctx);
-  ctx.answerCbQuery();
-};
 
 const sendCreateNewSolanaAddress = async (ctx: Context) => {
   const message = await createNewWalletAddress();
   ctx.reply(message, { parse_mode: "Markdown" });
+};
+
+const sendWalletInfo = async (userId: string) => {
+  const { message, address } = await getWalletInfo(userId);
+
+  const buttons = Markup.inlineKeyboard([
+    [
+      Markup.button.url(
+        "View on Solscan",
+        `https://solscan.io/account/${address}`
+      ),
+      Markup.button.callback("Close", "close"),
+    ],
+    [Markup.button.callback("Deposit SOL", "deposit_sol")],
+    [
+      Markup.button.callback("Withdraw all SOL", "withdraw_all"),
+      Markup.button.callback("Withdraw X SOL", "withdraw_x"),
+    ],
+    [
+      Markup.button.callback("Reset Wallet", "reset_wallet"),
+      Markup.button.callback("Export Private Key", "export_key"),
+    ],
+    [Markup.button.callback("Refresh", "refresh")],
+  ]);
+
+  const updatedMessage = `${message}\n\n_Last updated: ${new Date().toLocaleTimeString()}_`;
+
+  return { message: updatedMessage, buttons };
 };
 
 const sendCreateSolanaToken = async (ctx: MyContext) => {
@@ -233,6 +348,40 @@ const sendCreateSolanaToken = async (ctx: MyContext) => {
     await ctx.reply("An error occurred while trying to create your token.");
   }
 };
+
+// Use sendWalletInfo initially to send the message with wallet info
+const displayWalletInfo = async (ctx: Context) => {
+  const { message, buttons } = await sendWalletInfo(ctx.from?.id?.toString()!);
+  ctx.reply(message, { parse_mode: "Markdown", ...buttons });
+};
+
+const sendDepositSol = async (ctx: Context) => {
+  const { message } = await getDepositSol(ctx.from?.id?.toString()!);
+  ctx.reply(message, { parse_mode: "Markdown" });
+};
+
+const sendWithdrawSol = async (ctx: MyContext) => {
+  const { message } = await withdrawSol(ctx?.from?.id.toString()!);
+  ctx.session.state = "withdraw_sol";
+  ctx.reply(message, { parse_mode: "Markdown" });
+  ctx.answerCbQuery();
+
+};
+
+const sendWithdrawXSol = async (ctx: MyContext) => {
+  const { message } = await withdrawXSol(ctx?.from?.id.toString()!);
+  ctx.session.state = "awaiting_withdraw_amount";
+  ctx.reply(message, { parse_mode: "Markdown" });
+  ctx.answerCbQuery();
+
+};
+
+const handleCallback = (ctx: Context, callback: (ctx: Context) => void) => {
+  callback(ctx);
+  ctx.answerCbQuery();
+};
+
+bot.launch().then(() => console.log("Bot started"));
 
 // Graceful shutdown
 process.once("SIGINT", () => bot.stop("SIGINT"));
