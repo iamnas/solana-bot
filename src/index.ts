@@ -1,6 +1,7 @@
 import { Context, Markup, session, Telegraf } from "telegraf";
 import "dotenv/config";
 import {
+  buyToken,
   createNewSolanaAddress,
   createNewWalletAddress,
   createSolanaToken,
@@ -36,7 +37,7 @@ const defalutSession = {
   tokenName: "",
   tokenSymbol: "",
   tokenSupply: "",
-  withdrawAmount:""
+  withdrawAmount: "",
 };
 
 bot.use(
@@ -74,7 +75,7 @@ const sendWelcomeMessage = async (ctx: Context) => {
       `We guarantee the safety of user funds on BonkBot, but if you expose your private key your funds will not be safe\\.`,
     Markup.inlineKeyboard([
       [
-        // Markup.button.callback("Buy", "buy"),
+        Markup.button.callback("Buy", "buy"),
         // Markup.button.callback("Sell & Manage", "sell_manage"),
       ],
       // [
@@ -97,6 +98,10 @@ const sendWelcomeMessage = async (ctx: Context) => {
 };
 
 bot.start((ctx) => sendWelcomeMessage(ctx));
+
+bot.action("buy", (ctx) => {
+  handleMyCallback(ctx, sendBuyToken);
+});
 
 bot.action("createwallet", (ctx) => {
   handleCallback(ctx, sendCreateNewSolanaAddress);
@@ -170,7 +175,7 @@ bot.action("confirm_reset", async (ctx) => {
     `You can now send SOL to this address to deposit into your new wallet. Press refresh to see your new wallet.`;
 
   const button = Markup.inlineKeyboard([
-    [Markup.button.callback("Refresh", "refresh")],
+    [Markup.button.callback("Refresh", "refresh_wallet")],
   ]);
 
   await ctx.reply(message, { parse_mode: "Markdown", ...button });
@@ -187,7 +192,7 @@ bot.action("export_key", (ctx) => {
 });
 
 // Handler for refreshing wallet info
-bot.action("refresh", async (ctx) => {
+bot.action("refresh_wallet", async (ctx) => {
   const { message, buttons } = await sendWalletInfo(ctx.from?.id?.toString()!);
   await ctx.editMessageText(message, { parse_mode: "Markdown", ...buttons });
   ctx.answerCbQuery(); // Acknowledge the callback query
@@ -281,7 +286,7 @@ bot.on(message("text"), async (ctx) => {
     const { message } = await withdrawAllSol(address, ctx.from.id.toString());
     await ctx.reply(message, { parse_mode: "Markdown" });
     ctx.session = defalutSession;
-  }else if (state === "awaiting_withdraw_amount"){
+  } else if (state === "awaiting_withdraw_amount") {
     const amountInput = ctx.message?.text;
     if (!amountInput) {
       return ctx.reply("Invalid input. Please enter a valid amount in SOL.");
@@ -289,13 +294,47 @@ bot.on(message("text"), async (ctx) => {
     ctx.session.withdrawAmount = ctx.message.text;
     ctx.session.state = "awaiting_withdraw_address";
     await ctx.reply("Now, Please enter your wallet address for withdraw");
-
-  }else if (state === "awaiting_withdraw_address"){
+  } else if (state === "awaiting_withdraw_address") {
     const address = ctx.message.text;
-    const { message } = await withdrawAllXSol(address,ctx.session.withdrawAmount ,ctx.from.id.toString());
+    const { message } = await withdrawAllXSol(
+      address,
+      ctx.session.withdrawAmount,
+      ctx.from.id.toString()
+    );
     await ctx.reply(message, { parse_mode: "Markdown" });
     ctx.session = defalutSession;
+  } else if (state === "buy_token") {
+
+    const tokenAddress = ctx.message.text;
+    
+    // Send a loading message
+    const loadingMessage = await ctx.reply("Processing your request, please wait...");
+
+    try {
+        // Call the buyToken function
+        const { message } = await buyToken(tokenAddress, ".001");
+
+        // Update the loading message with the result
+        await ctx.telegram.editMessageText(
+            ctx.chat.id,
+            loadingMessage.message_id,
+            undefined,
+            message,
+            { parse_mode: "Markdown" }
+        );
+    } catch (error) {
+        // If there was an error, update the message with an error response
+        await ctx.telegram.editMessageText(
+            ctx.chat.id,
+            loadingMessage.message_id,
+            undefined,
+            "An error occurred while processing your request.",
+            { parse_mode: "Markdown" }
+        );
+    }
+    ctx.session = defalutSession;
   }
+  
   // else {
   //   await ctx.reply(
   //     "Please use the /createtoken command to start creating a token."
@@ -328,7 +367,7 @@ const sendWalletInfo = async (userId: string) => {
       Markup.button.callback("Reset Wallet", "reset_wallet"),
       Markup.button.callback("Export Private Key", "export_key"),
     ],
-    [Markup.button.callback("Refresh", "refresh")],
+    [Markup.button.callback("Refresh", "refresh_wallet")],
   ]);
 
   const updatedMessage = `${message}\n\n_Last updated: ${new Date().toLocaleTimeString()}_`;
@@ -365,7 +404,6 @@ const sendWithdrawSol = async (ctx: MyContext) => {
   ctx.session.state = "withdraw_sol";
   ctx.reply(message, { parse_mode: "Markdown" });
   ctx.answerCbQuery();
-
 };
 
 const sendWithdrawXSol = async (ctx: MyContext) => {
@@ -373,10 +411,28 @@ const sendWithdrawXSol = async (ctx: MyContext) => {
   ctx.session.state = "awaiting_withdraw_amount";
   ctx.reply(message, { parse_mode: "Markdown" });
   ctx.answerCbQuery();
+};
 
+const sendBuyToken = async (ctx: MyContext) => {
+  const message = `*Buy Token:* \n` + `To buy a token enter token address`;
+
+  const button = Markup.inlineKeyboard([
+    Markup.button.callback("Close", "close"),
+  ]);
+
+  ctx.session.state = "buy_token";
+  ctx.reply(message, { parse_mode: "Markdown", ...button });
 };
 
 const handleCallback = (ctx: Context, callback: (ctx: Context) => void) => {
+  callback(ctx);
+  ctx.answerCbQuery();
+};
+
+const handleMyCallback = (
+  ctx: MyContext,
+  callback: (ctx: MyContext) => void
+) => {
   callback(ctx);
   ctx.answerCbQuery();
 };

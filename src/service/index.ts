@@ -12,6 +12,7 @@ import bs58 from "bs58";
 import { prisma } from "../db";
 import { createNewToken } from "./createToken.service";
 import { message } from "telegraf/filters";
+import { buyTokenService } from "./buyToken.service";
 
 export const MIN_BALANCE = 5e8;
 
@@ -240,7 +241,7 @@ export const withdrawAllXSol = async (
 
     if (!userData) return { message: `User not found` };
 
-    const amountLamports = Number(amount)*LAMPORTS_PER_SOL
+    const amountLamports = Number(amount) * LAMPORTS_PER_SOL;
 
     const balance = await getBalance(userData.publicKey);
 
@@ -279,6 +280,19 @@ export const withdrawAllXSol = async (
 
     return { message: `Something went wrong please try again latet` };
   }
+};
+
+export const buyToken = async (address: string, amount: string) => {
+  if (!isValidAddress(address)) {
+    return { message: `Given address is not valid provide valid address` };
+  }
+
+  const amountLamports = Number(amount) * LAMPORTS_PER_SOL;
+  const message = await buyTokenService(address, amountLamports);
+
+  return {
+    message: message,
+  };
 };
 
 export const getBalance = (pubkey: string) => {
