@@ -22,4 +22,63 @@ model User {
 
   createAt DateTime @default(now())
   updateAt DateTime @default(now())
+  Setting  Setting?
+}
+
+model Setting {
+  id String @id @unique @default(cuid())
+
+  // General Settings
+  language    String @default("English") // e.g., "English" or any other language code
+  minPosValue Float  @default(0.001) // Minimum Position Value
+
+  // Auto Buy
+  autoBuyEnabled Boolean @default(false)
+  autoBuyAmount  Float   @default(1)
+
+  // Security Config
+  twoFactorEnabled    Boolean @default(false)
+  autoApproveDisabled Boolean @default(false)
+
+  // Buy Buttons Config
+  buyLeftButtonAmount  Float? @default(1.0)
+  buyRightButtonAmount Float? @default(5.0)
+
+  // Sell Buttons Config
+  sellLeftButtonPercentage  Int? @default(25)
+  sellRightButtonPercentage Int? @default(100)
+
+  // Slippage Config
+  buySlippagePercentage  Int @default(10)
+  sellSlippagePercentage Int @default(10)
+  maxPriceImpact         Int @default(25)
+
+  // MEV Protect
+  mevProtectEnabled Boolean @default(false)
+  mevMode           MEVMODE @default(Turbo) 
+
+  // Transaction Priority
+  transactionPriority TX_PRIORITY @default(Medium)
+  transactionFee      Float  @default(0.001) // Transaction fee amount
+
+  // Sell Protection
+  sellProtectionEnabled Boolean @default(false)
+
+  createAt DateTime @default(now())
+  updateAt DateTime @default(now())
+
+  userId String @unique // This ensures a one-to-one relationship
+  User   User   @relation(fields: [userId], references: [userId])
+}
+
+enum MEVMODE {
+  Turbo
+  Secure
+}
+
+enum TX_PRIORITY {
+  High
+  VaryHigh
+  Medium
+  Custom
 }

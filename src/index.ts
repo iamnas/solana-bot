@@ -5,10 +5,14 @@ import {
   createNewSolanaAddress,
   createNewWalletAddress,
   createSolanaToken,
+  disableAutoBuy,
   getBalance,
   getDepositSol,
   getWalletInfo,
   MIN_BALANCE,
+  resetUserWallet,
+  sendSettingMessage,
+  welcomeMessage,
   withdrawAllSol,
   withdrawAllXSol,
   withdrawSol,
@@ -60,41 +64,37 @@ const sendWelcomeMessage = async (ctx: Context) => {
         publicKey: publicKey,
         privateKey: privateKey,
         userId: userId,
+        Setting: {
+          create: {},
+        },
       },
     });
   }
 
-  ctx.replyWithMarkdownV2(
-    `*Welcome to BonkBot* \n` +
-      `Solana's fastest bot to trade any coin \\(SPL token\\), built by the BonkBot community\\!\n\n` +
-      `You currently have no SOL in your wallet\\. To start trading, deposit SOL to your BonkBot wallet address:\n\n` +
-      `\`${data.publicKey}\` \n\n` +
-      `Once done tap refresh and your balance will appear here\\.\n\n` +
-      `To buy a token, enter a ticker, token address, or a URL from pump\\.fun or Birdeye\\.\n\n` +
-      `For more info on your wallet and to retrieve your private key, tap the wallet button below\\. ` +
-      `We guarantee the safety of user funds on BonkBot, but if you expose your private key your funds will not be safe\\.`,
-    Markup.inlineKeyboard([
-      [
-        Markup.button.callback("Buy", "buy"),
-        // Markup.button.callback("Sell & Manage", "sell_manage"),
-      ],
-      // [
-      //   Markup.button.callback("Help", "help"),
-      //   Markup.button.callback("Refer Friends", "refer"),
-      //   Markup.button.callback("Alerts", "alert"),
-      // ],
-      [
-        Markup.button.callback("Create Wallet", "createwallet"),
-        Markup.button.callback("Wallet", "wallet"),
-        Markup.button.callback("Create Token", "crearetoken"),
-        // Markup.button.callback("Settings", "settings"),
-      ],
-      [
-        // Markup.button.callback("Pin", "pin"),
-        // Markup.button.callback("Refresh", "refresh"),
-      ],
-    ])
-  );
+  const { message } = await welcomeMessage(userId);
+
+  const button = Markup.inlineKeyboard([
+    [
+      Markup.button.callback("Buy", "buy"),
+      // Markup.button.callback("Sell & Manage", "sell_manage"),
+    ],
+    // [
+    //   Markup.button.callback("Help", "help"),
+    //   Markup.button.callback("Refer Friends", "refer"),
+    //   Markup.button.callback("Alerts", "alert"),
+    // ],
+    [
+      Markup.button.callback("Create Wallet", "createwallet"),
+      Markup.button.callback("Create Token", "crearetoken"),
+    ],
+    [
+      Markup.button.callback("Wallet", "wallet"),
+      Markup.button.callback("Settings", "settings"),
+      // Markup.button.callback("Pin", "pin"),
+      // Markup.button.callback("Refresh", "refresh"),
+    ],
+  ]);
+  ctx.reply(message, { parse_mode: "Markdown", ...button });
 };
 
 bot.start((ctx) => sendWelcomeMessage(ctx));
@@ -105,6 +105,10 @@ bot.action("buy", (ctx) => {
 
 bot.action("createwallet", (ctx) => {
   handleCallback(ctx, sendCreateNewSolanaAddress);
+});
+
+bot.action("settings", (ctx) => {
+  handleCallback(ctx, sendSetting);
 });
 
 bot.action("wallet", (ctx) => {
@@ -134,6 +138,8 @@ bot.action("crearetoken", async (ctx) => {
 });
 
 bot.action("close", (ctx) => ctx.deleteMessage());
+
+bot.action("button", (ctx) => ctx.answerCbQuery());
 
 bot.action("deposit_sol", (ctx) => {
   handleCallback(ctx, sendDepositSol);
@@ -167,7 +173,7 @@ bot.action("reset_wallet", async (ctx) => {
 // Confirm reset action
 bot.action("confirm_reset", async (ctx) => {
   // Perform the wallet reset logic here
-  const newWallet = "await resetUserWallet(ctx.from?.id)";
+  const newWallet = await resetUserWallet(ctx.from?.id?.toString());
 
   const message =
     `*Success:* Your new wallet is:\n\n` +
@@ -197,6 +203,81 @@ bot.action("refresh_wallet", async (ctx) => {
   await ctx.editMessageText(message, { parse_mode: "Markdown", ...buttons });
   ctx.answerCbQuery(); // Acknowledge the callback query
 });
+
+bot.action("set_language", (ctx) =>
+  ctx.answerCbQuery("Language setting coming soon!")
+);
+
+bot.action("set_min_pos_value", (ctx) =>
+  ctx.answerCbQuery("Min Pos Value setting coming soon!")
+);
+
+bot.action("toggle_auto_buy", async (ctx) => {
+  await disableAutoBuy(ctx.from.id.toString());
+  const { message, button } = await sendSettingMessage(
+    ctx.from?.id.toString()!
+  );
+
+  await ctx.editMessageText(message, { parse_mode: "Markdown", ...button });
+  
+  ctx.answerCbQuery("Toggling Auto Buy...");
+});
+
+bot.action("set_auto_buy_amount", (ctx) =>
+  ctx.answerCbQuery("Auto Buy amount setting coming soon!")
+);
+
+bot.action("setup_2fa", (ctx) => ctx.answerCbQuery("Setting up 2FA..."));
+
+bot.action("toggle_swap_auto_approve", (ctx) =>
+  ctx.answerCbQuery("Toggling Swap Auto-Approve...")
+);
+
+bot.action("set_buy_left", (ctx) =>
+  ctx.answerCbQuery("Setting Buy Left button amount...")
+);
+
+bot.action("set_buy_right", (ctx) =>
+  ctx.answerCbQuery("Setting Buy Right button amount...")
+);
+
+bot.action("set_sell_left", (ctx) =>
+  ctx.answerCbQuery("Setting Sell Left button amount...")
+);
+
+bot.action("set_sell_right", (ctx) =>
+  ctx.answerCbQuery("Setting Sell Right button amount...")
+);
+
+bot.action("set_slippage_buy", (ctx) =>
+  ctx.answerCbQuery("Setting Buy Slippage...")
+);
+
+bot.action("set_slippage_sell", (ctx) =>
+  ctx.answerCbQuery("Setting Sell Slippage...")
+);
+
+bot.action("set_max_price_impact", (ctx) =>
+  ctx.answerCbQuery("Setting Max Price Impact...")
+);
+
+bot.action("toggle_mev_protect", (ctx) =>
+  ctx.answerCbQuery("Toggling MEV Protect...")
+);
+
+bot.action("set_priority", (ctx) =>
+  ctx.answerCbQuery("Setting Transaction Priority...")
+);
+
+bot.action("set_priority_fee", (ctx) =>
+  ctx.answerCbQuery("Setting Priority Fee...")
+);
+
+bot.action("toggle_sell_protection", (ctx) =>
+  ctx.answerCbQuery("Toggling Sell Protection...")
+);
+
+bot.action("close_settings", (ctx) => ctx.answerCbQuery("Closing Settings..."));
 
 bot.on(message("photo"), async (ctx) => {
   if (ctx.session.state === "awaiting_image") {
@@ -304,37 +385,38 @@ bot.on(message("text"), async (ctx) => {
     await ctx.reply(message, { parse_mode: "Markdown" });
     ctx.session = defalutSession;
   } else if (state === "buy_token") {
-
     const tokenAddress = ctx.message.text;
-    
+
     // Send a loading message
-    const loadingMessage = await ctx.reply("Processing your request, please wait...");
+    const loadingMessage = await ctx.reply(
+      "Processing your request, please wait..."
+    );
 
     try {
-        // Call the buyToken function
-        const { message } = await buyToken(tokenAddress, ".001");
+      // Call the buyToken function
+      const { message } = await buyToken(tokenAddress, ".001");
 
-        // Update the loading message with the result
-        await ctx.telegram.editMessageText(
-            ctx.chat.id,
-            loadingMessage.message_id,
-            undefined,
-            message,
-            { parse_mode: "Markdown" }
-        );
+      // Update the loading message with the result
+      await ctx.telegram.editMessageText(
+        ctx.chat.id,
+        loadingMessage.message_id,
+        undefined,
+        message,
+        { parse_mode: "Markdown" }
+      );
     } catch (error) {
-        // If there was an error, update the message with an error response
-        await ctx.telegram.editMessageText(
-            ctx.chat.id,
-            loadingMessage.message_id,
-            undefined,
-            "An error occurred while processing your request.",
-            { parse_mode: "Markdown" }
-        );
+      // If there was an error, update the message with an error response
+      await ctx.telegram.editMessageText(
+        ctx.chat.id,
+        loadingMessage.message_id,
+        undefined,
+        "An error occurred while processing your request.",
+        { parse_mode: "Markdown" }
+      );
     }
     ctx.session = defalutSession;
   }
-  
+
   // else {
   //   await ctx.reply(
   //     "Please use the /createtoken command to start creating a token."
@@ -344,7 +426,10 @@ bot.on(message("text"), async (ctx) => {
 
 const sendCreateNewSolanaAddress = async (ctx: Context) => {
   const message = await createNewWalletAddress();
-  ctx.reply(message, { parse_mode: "Markdown" });
+  const button = Markup.inlineKeyboard([
+    [Markup.button.callback("Close", "close")],
+  ]);
+  ctx.reply(message, { parse_mode: "Markdown", ...button });
 };
 
 const sendWalletInfo = async (userId: string) => {
@@ -421,6 +506,13 @@ const sendBuyToken = async (ctx: MyContext) => {
   ]);
 
   ctx.session.state = "buy_token";
+  ctx.reply(message, { parse_mode: "Markdown", ...button });
+};
+
+const sendSetting = async (ctx: Context) => {
+  const { message, button } = await sendSettingMessage(
+    ctx.from?.id.toString()!
+  );
   ctx.reply(message, { parse_mode: "Markdown", ...button });
 };
 

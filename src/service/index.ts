@@ -11,13 +11,13 @@ import {
 import bs58 from "bs58";
 import { prisma } from "../db";
 import { createNewToken } from "./createToken.service";
-import { message } from "telegraf/filters";
+
 import { buyTokenService } from "./buyToken.service";
+import { Markup } from "telegraf";
 
 export const MIN_BALANCE = 5e8;
 
 export const createNewSolanaAddress = async () => {
-  // try {
   const newKeyPair = Keypair.generate();
   const pubkey = new PublicKey(newKeyPair.publicKey);
   const privateKey = bs58.encode(newKeyPair.secretKey);
@@ -97,14 +97,6 @@ export const getWalletInfo = async (userId: string) => {
     if (!userData) return { message: `User not found`, address: "" };
 
     const userBalance = await getBalance(userData.publicKey);
-
-    // if (userBalance < MIN_BALANCE) {
-    //   return `You need to deposit at least ${
-    //     MIN_BALANCE / LAMPORTS_PER_SOL
-    //   } SOL on your wallet for this function to work \`${
-    //     userData.publicKey
-    //   }\` (click to copy)`;
-    // }
 
     const message =
       `*Your Wallet:* \n\n` +
@@ -293,6 +285,228 @@ export const buyToken = async (address: string, amount: string) => {
   return {
     message: message,
   };
+};
+
+export const sendSettingMessage = async (userId: string) => {
+  const userData = await prisma.setting.findUnique({
+    where: { userId: userId },
+  });
+
+  const message =
+    ` *Settings:* \n\n` +
+    `*GENERAL SETTINGS* \n` +
+    `*Language*: Shows the current language. Tap to switch between available languages. \n` +
+    `*Minimum Position Value*: Minimum position value to show in portfolio. Will hide tokens below this threshhold. Tap to edit.\n\n` +
+    `*AUTO BUY* \n` +
+    `Immediately buy when pasting token address. Tap to toggle.\n\n` +
+    `*BUTTONS CONFIG* \n` +
+    `Customize your buy and sell buttons for buy token and manage position. Tap to edit. \n\n` +
+    `*SLIPPAGE CONFIG* \n` +
+    `Customize your slippage settings for buys and sells. Tap to edit.\n` +
+    `Max Price Impact is to protect against trades in extremely illiquid pools. \n\n` +
+    `*MEV PROTECT* \n` +
+    `MEV Protect accelerates your transactions and protect against frontruns to make sure you get the best price possible.\n` +
+    `*Turbo*: BONKbot will use MEV Protect, but if unprotected sending is faster it will use that instead.\n` +
+    `*Secure*: Transactions are guaranteed to be protected. This is the ultra secure option, but may be slower. \n\n` +
+    `*TRANSACTION PRIORITY* \n` +
+    `Increase your Transaction Priority to improve transaction speed. Select preset or tap to edit. \n\n` +
+    `*SELL PROTECTION* \n` +
+    `100% sell commands require an additional confirmation step. Tap to toggle. \n\n` +
+    `*SECURITY CONFIG* \n` +
+    `*Set Up Two-Factor Authentication*: Launches Mini App to secure your BONKbot with 2FA.\n` +
+    `*Enable/Disable Swap Auto-Approve*: Having Auto-Approve disabled means each token must first be whitelisted for trading via 2FA authorization.`;
+
+  const button = Markup.inlineKeyboard([
+    // GENERAL SETTINGS
+    [Markup.button.callback("--- GENERAL SETTING ---", "button")],
+    [
+      Markup.button.callback(
+        `🌍 Language: ${userData?.language || "English"}`,
+        "set_language"
+      ),
+      Markup.button.callback(
+        `Min Pos Value: $${userData?.minPosValue || "0.001"}`,
+        "set_min_pos_value"
+      ),
+    ],
+
+    // AUTO BUY Section
+    [Markup.button.callback("--- AUTO BUY ---", "button")],
+    [
+      Markup.button.callback(
+        userData?.autoBuyEnabled ? "🟢 Enabled" : "🔴 Disabled",
+        "toggle_auto_buy"
+      ),
+      Markup.button.callback(
+        `🔸 ${userData?.autoBuyAmount || "1.0"} SOL`,
+        "set_auto_buy_amount"
+      ),
+    ],
+
+    // SECURITY CONFIG Section
+    [Markup.button.callback("--- SECURITY CONFIG ---", "button")],
+    [
+      Markup.button.callback(
+        userData?.twoFactorEnabled ? "🟢 2FA Enabled" : "✅ Set Up 2FA",
+        "setup_2fa"
+      ),
+    ],
+    [
+      Markup.button.callback(
+        userData?.autoApproveDisabled
+          ? "🟢 Swap Auto-Approve Enabled"
+          : "🔴 Swap Auto-Approve Disabled",
+        "toggle_swap_auto_approve"
+      ),
+    ],
+
+    // BUY BUTTONS CONFIG
+    [Markup.button.callback("--- BUY BUTTONS CONFIG ---", "button")],
+    [
+      Markup.button.callback(
+        `Left: ${userData?.buyLeftButtonAmount || "1.0"} SOL`,
+        "set_buy_left"
+      ),
+      Markup.button.callback(
+        `Right: ${userData?.buyRightButtonAmount || "5.0"} SOL`,
+        "set_buy_right"
+      ),
+    ],
+
+    // SELL BUTTONS CONFIG
+    [Markup.button.callback("--- SELL BUTTONS CONFIG ---", "button")],
+    [
+      Markup.button.callback(
+        `Left: ${userData?.sellLeftButtonPercentage || "25"}%`,
+        "set_sell_left"
+      ),
+      Markup.button.callback(
+        `Right: ${userData?.sellRightButtonPercentage || "100"}%`,
+        "set_sell_right"
+      ),
+    ],
+
+    // SLIPPAGE CONFIG
+    [Markup.button.callback("--- SLIPPAGE CONFIG ---", "button")],
+    [
+      Markup.button.callback(
+        `Buy: ${userData?.buySlippagePercentage || "10"}%`,
+        "set_slippage_buy"
+      ),
+      Markup.button.callback(
+        `Sell: ${userData?.sellSlippagePercentage || "10"}%`,
+        "set_slippage_sell"
+      ),
+    ],
+    [
+      Markup.button.callback(
+        `Max Price Impact: ${userData?.maxPriceImpact || "25"}%`,
+        "set_max_price_impact"
+      ),
+    ],
+
+    // MEV PROTECT
+    [Markup.button.callback("--- MEV PROTECT ---", "button")],
+    [
+      Markup.button.callback(
+        userData?.mevProtectEnabled
+          ? "🟢 MEV Protect Enabled"
+          : "⚡ MEV Protect Disabled",
+        "toggle_mev_protect"
+      ),
+    ],
+
+    // TRANSACTION PRIORITY
+    [Markup.button.callback("--- TRANSACTION PRIORITY ---", "button")],
+    [
+      Markup.button.callback(
+        `⏫ ${userData?.transactionPriority || "Medium"}`,
+        "set_priority"
+      ),
+      Markup.button.callback(
+        `🔸 ${userData?.transactionFee || "0.001"} SOL`,
+        "set_priority_fee"
+      ),
+    ],
+
+    // SELL PROTECTION
+    [Markup.button.callback("--- SELL PROTECTION ---", "button")],
+    [
+      Markup.button.callback(
+        userData?.sellProtectionEnabled ? "🟢 Enabled" : "🔴 Disabled",
+        "toggle_sell_protection"
+      ),
+    ],
+
+    // Close Button
+    [Markup.button.callback("Close", "close")],
+  ]);
+
+  return { message, button };
+};
+
+export const disableAutoBuy = async (userId: string) => {
+  const currentSetting = await prisma.setting.findUnique({
+    where: { userId: userId },
+    select: { autoBuyEnabled: true }, // Only fetch the autoBuyEnabled field
+  });
+
+  if (currentSetting) {
+    // Update autoBuyEnabled to the opposite of its current value
+    const updatedSetting = await prisma.setting.update({
+      where: { userId: userId },
+      data: {
+        autoBuyEnabled: !currentSetting.autoBuyEnabled,
+      },
+    });
+
+    return updatedSetting;
+  } else {
+    throw new Error("User setting not found");
+  }
+};
+
+export const resetUserWallet = async (userId: string) => {
+  const message = await createNewSolanaAddress();
+  return message.publicKey;
+};
+
+export const welcomeMessage = async (userId: string) => {
+  const data = await prisma.user.findUnique({
+    where: { userId: userId },
+  });
+
+  if (!data) return { message: `User not found` };
+
+  const welcome = `*Welcome to BonkBot* \n\n`;
+
+  const balance = (await getBalance(data.publicKey)) / LAMPORTS_PER_SOL;
+
+  if (balance > 0) {
+    const welcomeMessage =
+      welcome +
+      `You currently have a balance of ${balance?.toFixed(
+        4
+      )} SOL, but no open positions.\n\n` +
+      `To get started trading, you can open a position by buying a token.\n\n` +
+      `To buy a token just enter a token address or paste a Birdeye link, and you will see a Buy dashboard pop up where you can choose how much you want to buy.\n\n` +
+      `Advanced traders can enable Auto Buy in their settings. When enabled, BONKbot will instantly buy any token you enter with a fixed amount that you set. This is disabled by default. \n\n` +
+      `*Wallet:* \n` +
+      `\`${data.publicKey}\` \n\n`;
+    return { message: welcomeMessage };
+  }
+
+  const message =
+    welcome +
+    `Solana's fastest bot to trade any coin \(SPL token\), built by the BonkBot community\!\n\n` +
+    `You currently have no SOL in your wallet. To start trading, deposit SOL to your BonkBot wallet address:\n\n` +
+    `\`${data.publicKey}\` \n\n` +
+    `Once done tap refresh and your balance will appear here.\n\n` +
+    `To buy a token, enter a ticker, token address, or a URL from pump.fun or Birdeye.\n\n` +
+    `For more info on your wallet and to retrieve your private key, tap the wallet button below. ` +
+    `We guarantee the safety of user funds on BonkBot, but if you expose your private key your funds will not be safe.`;
+
+  return { message };
 };
 
 export const getBalance = (pubkey: string) => {
