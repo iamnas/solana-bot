@@ -34,11 +34,11 @@ model Setting {
 
   // Auto Buy
   autoBuyEnabled Boolean @default(false)
-  autoBuyAmount  Float   @default(1)
+  autoBuyAmount  Float   @default(0.001)
 
   // Security Config
   twoFactorEnabled    Boolean @default(false)
-  autoApproveDisabled Boolean @default(false)
+  swapAutoApprove Boolean @default(false)
 
   // Buy Buttons Config
   buyLeftButtonAmount  Float? @default(1.0)
@@ -62,7 +62,7 @@ model Setting {
   transactionFee      Float  @default(0.001) // Transaction fee amount
 
   // Sell Protection
-  sellProtectionEnabled Boolean @default(false)
+  sellProtection Boolean @default(false)
 
   createAt DateTime @default(now())
   updateAt DateTime @default(now())

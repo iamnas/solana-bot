@@ -14,6 +14,7 @@ import { createNewToken } from "./createToken.service";
 
 import { buyTokenService } from "./buyToken.service";
 import { Markup } from "telegraf";
+import { Setting, TX_PRIORITY } from "@prisma/client";
 
 export const MIN_BALANCE = 5e8;
 
@@ -274,13 +275,34 @@ export const withdrawAllXSol = async (
   }
 };
 
-export const buyToken = async (address: string, amount: string) => {
+export const buyToken = async (userId: string, address: string) => {
   if (!isValidAddress(address)) {
     return { message: `Given address is not valid provide valid address` };
   }
 
-  const amountLamports = Number(amount) * LAMPORTS_PER_SOL;
-  const message = await buyTokenService(address, amountLamports);
+  const userData = await prisma.user.findUnique({
+    where: { userId },
+    select: { Setting: true, publicKey: true, privateKey: true },
+  });
+
+  if (!userData || !userData?.Setting || !userData?.Setting?.autoBuyAmount) {
+    return { message: `User not found` };
+  }
+  const userBalance = (await getBalance(userData.publicKey)) / LAMPORTS_PER_SOL;
+
+  if (userBalance < userData?.Setting?.autoBuyAmount) {
+    return {
+      message: `Insufficient balance , please deposit minimum ${userData?.Setting?.autoBuyAmount} Sol to ${userData.publicKey} `,
+    };
+  }
+
+  const amountLamports = userData?.Setting?.autoBuyAmount * LAMPORTS_PER_SOL;
+
+  const message = await buyTokenService(
+    userData.privateKey,
+    address,
+    amountLamports
+  );
 
   return {
     message: message,
@@ -353,7 +375,7 @@ export const sendSettingMessage = async (userId: string) => {
     ],
     [
       Markup.button.callback(
-        userData?.autoApproveDisabled
+        userData?.swapAutoApprove
           ? "🟢 Swap Auto-Approve Enabled"
           : "🔴 Swap Auto-Approve Disabled",
         "toggle_swap_auto_approve"
@@ -407,14 +429,7 @@ export const sendSettingMessage = async (userId: string) => {
 
     // MEV PROTECT
     [Markup.button.callback("--- MEV PROTECT ---", "button")],
-    [
-      Markup.button.callback(
-        userData?.mevProtectEnabled
-          ? "🟢 MEV Protect Enabled"
-          : "⚡ MEV Protect Disabled",
-        "toggle_mev_protect"
-      ),
-    ],
+    [Markup.button.callback(`⚡ ${userData?.mevMode}`, "toggle_mev_protect")],
 
     // TRANSACTION PRIORITY
     [Markup.button.callback("--- TRANSACTION PRIORITY ---", "button")],
@@ -424,7 +439,7 @@ export const sendSettingMessage = async (userId: string) => {
         "set_priority"
       ),
       Markup.button.callback(
-        `🔸 ${userData?.transactionFee || "0.001"} SOL`,
+        `🔸 ${userData?.transactionFee.toFixed(5) || "0.001"} SOL`,
         "set_priority_fee"
       ),
     ],
@@ -433,7 +448,7 @@ export const sendSettingMessage = async (userId: string) => {
     [Markup.button.callback("--- SELL PROTECTION ---", "button")],
     [
       Markup.button.callback(
-        userData?.sellProtectionEnabled ? "🟢 Enabled" : "🔴 Disabled",
+        userData?.sellProtection ? "🟢 Enabled" : "🔴 Disabled",
         "toggle_sell_protection"
       ),
     ],
@@ -445,25 +460,88 @@ export const sendSettingMessage = async (userId: string) => {
   return { message, button };
 };
 
-export const disableAutoBuy = async (userId: string) => {
+export const toggleSetting = async (
+  userId: string,
+  settingKey: keyof Setting
+) => {
   const currentSetting = await prisma.setting.findUnique({
     where: { userId: userId },
-    select: { autoBuyEnabled: true }, // Only fetch the autoBuyEnabled field
+    select: { [settingKey]: true }, // Dynamically select the setting
   });
 
-  if (currentSetting) {
-    // Update autoBuyEnabled to the opposite of its current value
-    const updatedSetting = await prisma.setting.update({
-      where: { userId: userId },
-      data: {
-        autoBuyEnabled: !currentSetting.autoBuyEnabled,
-      },
-    });
-
-    return updatedSetting;
-  } else {
-    throw new Error("User setting not found");
+  if (!currentSetting || !(settingKey in currentSetting)) {
+    throw new Error("User setting not found or invalid setting key");
   }
+
+  const currentValue = currentSetting[settingKey];
+
+  // Handle boolean fields
+  if (typeof currentValue === "boolean") {
+    return prisma.setting.update({
+      where: { userId: userId },
+      data: { [settingKey]: !currentValue },
+    });
+  }
+
+  // Handle enum-like fields (e.g., MEVMODE)
+  if (settingKey === "mevMode" && typeof currentValue === "string") {
+    const newValue = currentValue === "Turbo" ? "Secure" : "Turbo";
+    return prisma.setting.update({
+      where: { userId: userId },
+      data: { [settingKey]: newValue },
+    });
+  }
+
+  throw new Error("Unsupported setting type for toggling");
+};
+
+export const setTransactionPriority = async (
+  userId: string,
+  priority: TX_PRIORITY
+) => {
+  let transactionFee;
+
+  switch (priority) {
+    case "High":
+      transactionFee = 0.005;
+      break;
+    case "VaryHigh":
+      transactionFee = 0.01;
+      break;
+    case "Medium":
+      transactionFee = 0.001;
+      break;
+    default:
+      throw new Error("Invalid priority level");
+  }
+
+  return prisma.setting.update({
+    where: { userId: userId },
+    data: {
+      transactionPriority: priority,
+      transactionFee: transactionFee,
+    },
+  });
+};
+
+export const getCustomFeeFromUser = async (
+  userId: string,
+  transactionFee: number
+) => {
+  const currentSetting = await prisma.setting.findUnique({
+    where: { userId: userId },
+    select: { transactionPriority: true },
+  });
+
+  if (!currentSetting) throw new Error("User setting not found");
+
+  return prisma.setting.update({
+    where: { userId: userId },
+    data: {
+      transactionPriority: "Custom",
+      transactionFee: transactionFee,
+    },
+  });
 };
 
 export const resetUserWallet = async (userId: string) => {

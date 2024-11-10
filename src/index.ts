@@ -5,13 +5,15 @@ import {
   createNewSolanaAddress,
   createNewWalletAddress,
   createSolanaToken,
-  disableAutoBuy,
   getBalance,
+  getCustomFeeFromUser,
   getDepositSol,
   getWalletInfo,
   MIN_BALANCE,
   resetUserWallet,
   sendSettingMessage,
+  setTransactionPriority,
+  toggleSetting,
   welcomeMessage,
   withdrawAllSol,
   withdrawAllXSol,
@@ -23,6 +25,7 @@ import { message } from "telegraf/filters";
 import type { Update } from "telegraf/types";
 import axios from "axios";
 import { LAMPORTS_PER_SOL } from "@solana/web3.js";
+import { Setting, TX_PRIORITY } from "@prisma/client";
 
 interface MyContext<U extends Update = Update> extends Context<U> {
   session: {
@@ -31,10 +34,11 @@ interface MyContext<U extends Update = Update> extends Context<U> {
     tokenSymbol: string;
     tokenSupply: string;
     withdrawAmount: string;
+    messageIdToEdit: number;
   };
 }
 
-const bot = new Telegraf<MyContext>(process.env.BOT_TOKEN!);
+const bot = new Telegraf<MyContext>(process.env.BOT_TOKEN!,{handlerTimeout: 9_000_000});
 
 const defalutSession = {
   state: "",
@@ -42,6 +46,7 @@ const defalutSession = {
   tokenSymbol: "",
   tokenSupply: "",
   withdrawAmount: "",
+  messageIdToEdit: 0,
 };
 
 bot.use(
@@ -133,6 +138,7 @@ bot.action("crearetoken", async (ctx) => {
     }\` (click to copy)`;
   }
 
+
   sendCreateSolanaToken(ctx);
   // handleCallback(ctx, sendCreateSolanaToken);
 });
@@ -212,26 +218,11 @@ bot.action("set_min_pos_value", (ctx) =>
   ctx.answerCbQuery("Min Pos Value setting coming soon!")
 );
 
-bot.action("toggle_auto_buy", async (ctx) => {
-  await disableAutoBuy(ctx.from.id.toString());
-  const { message, button } = await sendSettingMessage(
-    ctx.from?.id.toString()!
-  );
-
-  await ctx.editMessageText(message, { parse_mode: "Markdown", ...button });
-  
-  ctx.answerCbQuery("Toggling Auto Buy...");
-});
-
 bot.action("set_auto_buy_amount", (ctx) =>
   ctx.answerCbQuery("Auto Buy amount setting coming soon!")
 );
 
 bot.action("setup_2fa", (ctx) => ctx.answerCbQuery("Setting up 2FA..."));
-
-bot.action("toggle_swap_auto_approve", (ctx) =>
-  ctx.answerCbQuery("Toggling Swap Auto-Approve...")
-);
 
 bot.action("set_buy_left", (ctx) =>
   ctx.answerCbQuery("Setting Buy Left button amount...")
@@ -261,21 +252,62 @@ bot.action("set_max_price_impact", (ctx) =>
   ctx.answerCbQuery("Setting Max Price Impact...")
 );
 
+bot.action("toggle_auto_buy", (ctx) =>
+  toggleAndUpdateMessage(ctx, "autoBuyEnabled")
+);
+bot.action("toggle_swap_auto_approve", (ctx) =>
+  toggleAndUpdateMessage(ctx, "swapAutoApprove")
+);
 bot.action("toggle_mev_protect", (ctx) =>
-  ctx.answerCbQuery("Toggling MEV Protect...")
+  toggleAndUpdateMessage(ctx, "mevMode")
 );
-
-bot.action("set_priority", (ctx) =>
-  ctx.answerCbQuery("Setting Transaction Priority...")
-);
-
-bot.action("set_priority_fee", (ctx) =>
-  ctx.answerCbQuery("Setting Priority Fee...")
-);
-
 bot.action("toggle_sell_protection", (ctx) =>
-  ctx.answerCbQuery("Toggling Sell Protection...")
+  toggleAndUpdateMessage(ctx, "sellProtection")
 );
+
+bot.action("set_priority_fee", async (ctx) => {
+  const message = `Reply with your new Transaction Priority Setting for sells in SOL. \n\n Example: 0.0001 SOL`;
+  const sendMessage = await ctx.reply(message);
+
+  ctx.session.state = "awaiting_priority_fee";
+  ctx.session.messageIdToEdit = sendMessage.message_id;
+
+  ctx.answerCbQuery();
+});
+
+bot.action("set_priority", async (ctx) => {
+  const userId = ctx.from.id.toString();
+  const currentSetting = await prisma.setting.findUnique({
+    where: { userId: userId },
+    select: { transactionPriority: true },
+  });
+
+  let newPriority;
+  if (!currentSetting) throw new Error("User setting not found");
+
+  // Toggle between priorities
+  switch (currentSetting.transactionPriority) {
+    case "Medium":
+      newPriority = "High";
+      break;
+    case "High":
+      newPriority = "VaryHigh";
+      break;
+    case "VaryHigh":
+      newPriority = "Medium";
+      break;
+    case "Custom":
+      newPriority = "Medium";
+      break;
+    default:
+      newPriority = "Medium";
+  }
+
+  await setTransactionPriority(userId, newPriority as TX_PRIORITY);
+  const { message, button } = await sendSettingMessage(userId);
+  await ctx.editMessageText(message, { parse_mode: "Markdown", ...button });
+  ctx.answerCbQuery(`Transaction Priority set to ${newPriority}`);
+});
 
 bot.action("close_settings", (ctx) => ctx.answerCbQuery("Closing Settings..."));
 
@@ -350,6 +382,8 @@ bot.on(message("photo"), async (ctx) => {
 bot.on(message("text"), async (ctx) => {
   const state = ctx.session.state;
 
+  console.log(state);
+  
   if (state === "awaiting_name") {
     ctx.session.tokenName = ctx.message.text;
     ctx.session.state = "awaiting_symbol";
@@ -392,9 +426,11 @@ bot.on(message("text"), async (ctx) => {
       "Processing your request, please wait..."
     );
 
+    const userId = ctx.from.id.toString();
+
     try {
       // Call the buyToken function
-      const { message } = await buyToken(tokenAddress, ".001");
+      const { message } = await buyToken(userId,tokenAddress);
 
       // Update the loading message with the result
       await ctx.telegram.editMessageText(
@@ -415,7 +451,31 @@ bot.on(message("text"), async (ctx) => {
       );
     }
     ctx.session = defalutSession;
+  } else if (state === "awaiting_priority_fee") {
+    const transactionFee = parseFloat(ctx.message.text);
+    const userId = ctx.from.id.toString();
+
+    if (isNaN(transactionFee) || transactionFee <= 0) {
+      await ctx.reply("Please provide a valid transaction fee in SOL.");
+      return;
+    }
+
+    await getCustomFeeFromUser(ctx.from.id.toString(), transactionFee);
+    const { message, button } = await sendSettingMessage(userId);
+
+    await ctx.telegram.editMessageText(
+      ctx.chat.id,
+      ctx.session.messageIdToEdit,
+      undefined,
+      message,
+      { parse_mode: "Markdown", ...button }
+    );
+    ctx.session = defalutSession;
+
+    await ctx.reply(`Priority Fee set to ${transactionFee} SOL.`)
   }
+  ctx.session.state = "";
+  ctx.session = defalutSession;
 
   // else {
   //   await ctx.reply(
@@ -527,6 +587,18 @@ const handleMyCallback = (
 ) => {
   callback(ctx);
   ctx.answerCbQuery();
+};
+
+const toggleAndUpdateMessage = async (
+  ctx: Context,
+  settingKey: keyof Setting
+) => {
+  await toggleSetting(ctx?.from?.id.toString()!, settingKey);
+  const { message, button } = await sendSettingMessage(
+    ctx.from?.id.toString()!
+  );
+  await ctx.editMessageText(message, { parse_mode: "Markdown", ...button });
+  ctx.answerCbQuery(`Toggling ${settingKey.replace(/_/g, " ")}`);
 };
 
 bot.launch().then(() => console.log("Bot started"));
