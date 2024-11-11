@@ -102,7 +102,7 @@ export const getWalletInfo = async (userId: string) => {
     const message =
       `*Your Wallet:* \n\n` +
       `Address: \`${userData.publicKey}\` \n` +
-      `Balance: *${(userBalance / LAMPORTS_PER_SOL).toFixed(9)}* SOL \n\n` +
+      `Balance: *${(userBalance / LAMPORTS_PER_SOL).toFixed(6)}* SOL \n\n` +
       `Tap to copy the address and send SOL to deposit.`;
     return { message, address: userData.publicKey };
   } catch (error) {
@@ -546,6 +546,14 @@ export const getCustomFeeFromUser = async (
 
 export const resetUserWallet = async (userId: string) => {
   const message = await createNewSolanaAddress();
+
+  const userData = await prisma.user.update({
+    where: { userId },
+    data: {
+      publicKey: message.publicKey,
+      privateKey: message.privateKey,
+    },
+  });
   return message.publicKey;
 };
 
@@ -588,7 +596,7 @@ export const welcomeMessage = async (userId: string) => {
 };
 
 export const getBalance = (pubkey: string) => {
-  const connection = new Connection(clusterApiUrl("devnet"), "confirmed");
+  const connection = new Connection(clusterApiUrl("mainnet-beta"), "confirmed");
   const userBalance = connection.getBalance(new PublicKey(pubkey));
 
   return userBalance;

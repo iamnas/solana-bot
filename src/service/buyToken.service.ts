@@ -40,6 +40,10 @@ export const buyTokenService = async (
           userPublicKey: wallet.publicKey.toString(),
           wrapAndUnwrapSol: true, // Automatically handle SOL wrapping/unwrapping
           dynamicComputeUnitLimit: true,
+          prioritizationFeeLamports: "auto",
+          // prioritizationFeeLamports: {
+          //   autoMultiplier: 2,
+          // },
         },
         {
           headers: { "Content-Type": "application/json" },

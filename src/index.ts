@@ -38,9 +38,11 @@ interface MyContext<U extends Update = Update> extends Context<U> {
   };
 }
 
-const bot = new Telegraf<MyContext>(process.env.BOT_TOKEN!,{handlerTimeout: 9_000_000});
+const bot = new Telegraf<MyContext>(process.env.BOT_TOKEN!, {
+  handlerTimeout: 9_000_000,
+});
 
-const defalutSession = {
+const defaultSession = {
   state: "",
   tokenName: "",
   tokenSymbol: "",
@@ -51,7 +53,7 @@ const defalutSession = {
 
 bot.use(
   session({
-    defaultSession: () => defalutSession,
+    defaultSession: () => ({...defaultSession}),
   })
 );
 
@@ -138,12 +140,16 @@ bot.action("crearetoken", async (ctx) => {
     }\` (click to copy)`;
   }
 
-
   sendCreateSolanaToken(ctx);
   // handleCallback(ctx, sendCreateSolanaToken);
 });
 
-bot.action("close", (ctx) => ctx.deleteMessage());
+bot.action("close", (ctx) => {
+  ctx.deleteMessage();
+  ctx.session = { ...defaultSession };
+
+});
+
 
 bot.action("button", (ctx) => ctx.answerCbQuery());
 
@@ -368,7 +374,7 @@ bot.on(message("photo"), async (ctx) => {
       );
 
       // Here you could invoke a function to create the Solana token using the inputs and image
-      ctx.session = defalutSession; // Clear session after process is complete
+      ctx.session = { ...defaultSession }; // Clear session after process is complete
     } catch (error) {
       console.error("Error processing image:", error);
       await ctx.reply(
@@ -383,7 +389,7 @@ bot.on(message("text"), async (ctx) => {
   const state = ctx.session.state;
 
   console.log(state);
-  
+
   if (state === "awaiting_name") {
     ctx.session.tokenName = ctx.message.text;
     ctx.session.state = "awaiting_symbol";
@@ -400,7 +406,7 @@ bot.on(message("text"), async (ctx) => {
     const address = ctx.message.text;
     const { message } = await withdrawAllSol(address, ctx.from.id.toString());
     await ctx.reply(message, { parse_mode: "Markdown" });
-    ctx.session = defalutSession;
+    ctx.session = { ...defaultSession };
   } else if (state === "awaiting_withdraw_amount") {
     const amountInput = ctx.message?.text;
     if (!amountInput) {
@@ -417,7 +423,7 @@ bot.on(message("text"), async (ctx) => {
       ctx.from.id.toString()
     );
     await ctx.reply(message, { parse_mode: "Markdown" });
-    ctx.session = defalutSession;
+    ctx.session = { ...defaultSession };
   } else if (state === "buy_token") {
     const tokenAddress = ctx.message.text;
 
@@ -430,7 +436,7 @@ bot.on(message("text"), async (ctx) => {
 
     try {
       // Call the buyToken function
-      const { message } = await buyToken(userId,tokenAddress);
+      const { message } = await buyToken(userId, tokenAddress);
 
       // Update the loading message with the result
       await ctx.telegram.editMessageText(
@@ -450,7 +456,7 @@ bot.on(message("text"), async (ctx) => {
         { parse_mode: "Markdown" }
       );
     }
-    ctx.session = defalutSession;
+    ctx.session = { ...defaultSession };
   } else if (state === "awaiting_priority_fee") {
     const transactionFee = parseFloat(ctx.message.text);
     const userId = ctx.from.id.toString();
@@ -470,12 +476,12 @@ bot.on(message("text"), async (ctx) => {
       message,
       { parse_mode: "Markdown", ...button }
     );
-    ctx.session = defalutSession;
+    ctx.session = { ...defaultSession };
 
-    await ctx.reply(`Priority Fee set to ${transactionFee} SOL.`)
+    await ctx.reply(`Priority Fee set to ${transactionFee} SOL.`);
   }
   ctx.session.state = "";
-  ctx.session = defalutSession;
+  ctx.session = { ...defaultSession };
 
   // else {
   //   await ctx.reply(
@@ -559,6 +565,25 @@ const sendWithdrawXSol = async (ctx: MyContext) => {
 };
 
 const sendBuyToken = async (ctx: MyContext) => {
+  const userData = await prisma.user.findUnique({
+    where: { userId: ctx.from?.id.toString() },
+    select: { Setting: true, publicKey: true, privateKey: true },
+  });
+
+  if (!userData || !userData?.Setting || !userData?.Setting?.autoBuyAmount) {
+    return { message: `User not found` };
+  }
+  const userBalance = (await getBalance(userData.publicKey)) / LAMPORTS_PER_SOL;
+
+  if (userBalance < userData?.Setting?.autoBuyAmount) {
+    ctx.reply(
+      `*Insufficient balance.* Please deposit more then *${userData?.Setting?.autoBuyAmount} SOL* to the following address:\n\n \`${userData.publicKey}\``,
+      { parse_mode: "Markdown" }
+    );
+
+    ctx.answerCbQuery();
+    return;
+  }
   const message = `*Buy Token:* \n` + `To buy a token enter token address`;
 
   const button = Markup.inlineKeyboard([
